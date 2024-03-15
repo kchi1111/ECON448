@@ -1,0 +1,223 @@
+---
+title: "Final Paper Data Statement"
+subtitle: "Econ 448"
+author: Christina Chi & Qinglong Ma
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+output: html_notebook  
+---
+### Intro Packages
+```{r include=FALSE}
+pacman::p_load(fixest,ivreg,doBy,htmltools,shiny,DT, coefplot)
+```
+
+```{r include=FALSE}
+install.packages("ipumsr")
+```
+
+```{r warning=FALSE, include=FALSE}
+library(ggplot2)
+library(tidyr)
+library(ivreg)
+library(dplyr)
+library(fixest)
+library(doBy)
+library(stargazer)
+library(ipumsr)
+library(coefplot)
+library(corrplot)
+library("ipumsr")
+library(psych)
+library(plotrix)
+library(DT)
+library(gridExtra)
+```
+
+### Import Data
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+ddi <- read_ipums_ddi("ipumsi_00004.xml")
+
+ipumsr::ipums_view(ddi)
+df_ipums <- read_ipums_micro(ddi)
+
+df_analysis <- as.data.frame(df_ipums)
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+#Province GDP data 
+gdp <- read.csv("Province.csv")
+gdp <- gdp[-c(32,33,34,35), ]
+```
+
+### Data Cleaning 
+```{r}
+# Data Cleaning
+df_analysis <- filter(df_analysis, MIGCAUSE < 99)
+df_analysis <- filter(df_analysis, MIGCAUSE > 0)
+df_analysis <- filter(df_analysis, CHSURV < 98)
+df_analysis <- filter(df_analysis, LIT <9)
+df_analysis <- filter(df_analysis, SEX == 2) # focus on female
+df_analysis <- filter(df_analysis, AGE < 100)
+df_analysis <- filter(df_analysis, MARST < 9)
+df_analysis <- filter(df_analysis, INDGEN < 999)
+df_analysis <- filter(df_analysis, INDGEN > 0)
+
+df_analysis$LIT <- ifelse(df_analysis$LIT == 2, 1, 0) #1 means Literate, 0 means illiterate 
+```
+
+```{r}
+# Combine table together by GEO1_CN2000
+df <- merge(gdp, df_analysis, by = "GEO1_CN2000", all = TRUE)
+```
+
+```{r}
+# Change one variable into Dummy variable
+# 1 means marital reason migration
+# 0 means non-marital reason migration 
+# Such as work, study, insecurity, violence, health, and other reason.
+df$marriage_mig <- ifelse(df$MIGCAUSE %in% c(40, 41, 42), 1, 0)
+```
+
+### Exploratory Data Analysis
+
+Histogram of Children Surviving
+```{r echo=FALSE}
+hist(df$CHSURV, breaks = 10, freq = FALSE, 
+     xlab = "Number of Children Surviving", ylab = "Density", 
+     xlim = c(0,10), col = 'skyblue',
+     main = "Histogram of Children Surviving")
+curve(dnorm(x, mean = mean(df$CHSURV), sd = sd(df$CHSURV)), add = TRUE, col = "blue", lwd = 2, lty = 2)
+```
+
+
+Summary Statistic
+```{r}
+s_table <- describe(df[c("LIT", "marriage_mig", "CHSURV")], skew = FALSE)
+print(s_table)
+```
+
+### Pie Chart of Industries
+```{r echo=FALSE}
+# Example mapping table
+Mapping <- data.frame(
+  INDGEN = c(10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 111, 112, 113, 114, 120, 130), 
+  IndustryName = c("Agriculture, Fishing, & Forestry", "Mining & Extraction", "Manufacturing",
+                   "Electricty, Gas, Water & Waste Management", "Construction", 
+                   "Wholesale & Retail Trade", "Hotels & Restaurants", "Transportation & Storage",
+                   "Financial Services & Insurance", "Public Administration & Defense", 
+                   "Services (Not specified)", "Business Services & Real Estate", 
+                   "Education", "Health & Social Work", "Other Services", 
+                   "Private Household Services", "Other Industry") 
+  )
+
+# Merge the mapping table with your data frame
+ind_df <- merge(df, Mapping, by = "INDGEN", all.x = TRUE)
+
+ind_c <- table(ind_df$IndustryName)
+
+# Convert the table to a data frame for ggplot2
+industry_df <- as.data.frame(ind_c)
+names(industry_df) <- c("IndustryName", "Count")
+
+# Create a pie chart using ggplot2 with real names
+ggplot(industry_df, aes(x = "", y = -Count, fill = reorder(IndustryName, -Count))) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar(theta = "y") +
+  labs(fill = "Industry", title = "Distribution of Industries") +
+  theme_minimal() +
+  theme_void()
+```
+### Province Table
+```{r}
+# Each Province Data Table
+gd <- ind_df[ind_df$GEO1_CN2000 == 44, ] #GuangDong
+js <- df[df$GEO1_CN2000 == 32, ] #JiangSu
+sd <- df[df$GEO1_CN2000 == 37, ] #ShanDong
+qh <- df[df$GEO1_CN2000 == 63, ] #QingHai
+nx <- df[df$GEO1_CN2000 == 64, ] #NingXia
+tb <- ind_df[ind_df$GEO1_CN2000 == 53, ] #Tibet
+```
+
+### Create Marital-Migration Table and Non-Marital-Migration Table
+```{r}
+# Marital-Migration
+marital_mig <- ind_df[ind_df$marriage_mig == 1, ]
+
+# Non-Marital-Migration
+non_mig <- ind_df[ind_df$marriage_mig == 0, ]
+```
+
+```{r}
+#Maritial-Migration
+mig_c <- table(marital_mig$IndustryName)
+
+# Convert the table to a data frame for ggplot2
+df_mig <- as.data.frame(mig_c)
+names(df_mig) <- c("IndustryName", "Count")
+
+# Create a pie chart using ggplot2 with real names
+ggplot(df_mig, aes(x = "", y = -Count, fill = reorder(IndustryName, -Count))) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar(theta = "y") +
+  labs(fill = "Industry", 
+       title = "Distribution of Industries of Invididuals Migrated for Marital Reason") +
+  theme_minimal() +
+  theme_void()
+```
+
+```{r}
+#Non-Maritial-Migration
+non_c <- table(non_mig$IndustryName)
+
+# Convert the table to a data frame for ggplot2
+df_non <- as.data.frame(non_c)
+names(df_non) <- c("IndustryName", "Count")
+
+# Create a pie chart using ggplot2 with real names
+ggplot(df_non, aes(x = "", y = -Count, fill = reorder(IndustryName, -Count))) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar(theta = "y") +
+  labs(fill = "Industry", 
+       title = "Distribution of Industries of Individuals Migrated for Non-Marital Reasons") +
+  theme_minimal() +
+  theme_void()
+```
+
+
+
+### Models for Each Province
+```{r}
+model_gd <- lm(CHSURV ~ LIT + marriage_mig, data = gd)
+model_js <- lm(CHSURV ~ LIT + marriage_mig, data = js)
+model_sd <- lm(CHSURV ~ LIT + marriage_mig, data = sd)
+model_qh <- lm(CHSURV ~ LIT + marriage_mig, data = qh)
+model_nx <- lm(CHSURV ~ LIT + marriage_mig, data = nx)
+model_tb <- lm(CHSURV ~ LIT + marriage_mig, data = tb)
+# List of your models and their names
+models <- list(gd = model_gd, js = model_js, sd = model_sd,
+               qh = model_qh, nx = model_nx, tb = model_tb)
+
+# Extract key statistics from each model and store them in a data frame
+model_summaries <- do.call(rbind, lapply(models, function(model) {
+  coef_summary <- summary(model)$coefficients
+  c(Estimate_LIT = coef_summary["LIT", "Estimate"],
+    Std_Error_LIT = coef_summary["LIT", "Std. Error"],
+    p_Value_LIT = coef_summary["LIT", "Pr(>|t|)"],
+    Estimate_Mig = coef_summary["marriage_mig", "Estimate"],
+    Std_Error_Mig = coef_summary["marriage_mig", "Std. Error"],
+    p_Value_Mig = coef_summary["marriage_mig", "Pr(>|t|)"])
+}))
+
+# Add row names for easier identification
+rownames(model_summaries) <- names(models)
+
+# View the summary table
+model_summaries
+
+```
+
+### Linear Regression with All Data
+```{r}
+lr <- lm(CHSURV ~ LIT + marriage_mig, data = df)
+stargazer(lr)
+```
+
